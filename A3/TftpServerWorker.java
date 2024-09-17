@@ -24,6 +24,7 @@ class TftpServerWorker extends Thread
             File file = new File(filename);
             if(!file.exists()){
                 //Send an error message  
+                //Need to make an errror packet. ///////
                 System.err.println("File not found");
                 return;
             }
@@ -65,8 +66,54 @@ class TftpServerWorker extends Thread
                     dataPacket[2 + i] = buffer[i];
                 }
 
+                //creates the packet to be ready to get sent
+                DatagramPacket sendPacket = new DatagramPacket(dataPacket, dataPacket.length, req.getAddress(), req.getPort());
+                //sends the datapacket through the socket
+                ds.send(sendPacket);
+                
+                //ensures that the blocknum never goes above 255(1 byte)
+                blocknum = (blocknum + 1) % 256;
+
+
+                //need to check size of last packet sent and handle the final packet. 
+
+
 
                 
+                //create the ack datagram 
+                byte[] ackBuffer = new byte[2];
+                DatagramPacket ackPacket = new DatagramPacket(ackBuffer, ackBuffer.length);
+
+                //set timeout for waiting to send another packet
+                ds.setSoTimeout(1000);
+
+                boolean ackRecieved = false; 
+
+                int retransmission = 0;
+
+                while(retransmission < 5 && !ackRecieved){
+                    try{
+                        ds.receive(ackPacket);
+                        //checks that the first byte is a ACK and then the second is the correct byte in order we should be getting. 
+                        if(ackBuffer[0] == 3 && ackBuffer[1] == (byte) (blocknum)){
+                            ackRecieved = true;
+                        }
+                        
+                    }
+                    //catches it if there is a timeout and then retransmists it. 
+                    catch(SocketTimeoutException ex){
+                        ds.send(sendPacket);
+                        retransmission++;
+
+                    }
+
+                }
+                //checks if retransmissions is over 5 then terminates project 
+                if(retransmission >= 5 && !ackRecieved){
+                    System.err.println("Over 5 attemps and still no ACK, terminates project.");
+                    return;
+                }
+
 
 
             }
@@ -75,7 +122,7 @@ class TftpServerWorker extends Thread
 
         }
         catch(Exception ex){
-            System.out.println("something has gone wrong please try agian.");
+            System.out.println("something has gone wrong:" + ex.toString());
 
         }
 
@@ -93,13 +140,14 @@ class TftpServerWorker extends Thread
         // gets the req from the datagram packet 
         byte[] data = req.getData();
 
-        //checks that that it is a RRQ through the first 2 bytes
-        if (data[0] == 0 && data[1] == 1){
+        //checks that that it is a RRQ through the first byte
+        if (data[0] == 1){
 
+            //might redo don't like string builders 
             StringBuilder fileNameBuilder = new StringBuilder();
 
             //to store where in the data packet we are
-            int index = 2;
+            int index = 1;
 
             //loops through until end of file
             while(data[index] != 0){
